@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { barColor, barText, clock, hitPercent, piece, troops, ringsLeft, dollars, until, activeAgents, heading, arrowTrack } from '../hooks/register'
+import { barColor, barText, clock, hitPercent, piece, troops, ringsLeft, dollars, until, activeAgents, heading, arrowTrack, addCall, topTools } from '../hooks/register'
 
 const PANE = {
   component: 'Pane',
@@ -83,4 +83,19 @@ test('the heading fills the line and the arrow flies to the target', () => {
   expect(arrowTrack(0, 5)).toBe('➤···· 🎯')
   expect(arrowTrack(100, 5)).toBe('····➤ 🎯')
   expect(arrowTrack(null, 5)).toBe('····· 🎯')
+})
+
+test('a call goes to the main loop or the subagents, by its result', () => {
+  const zero = { main: { ok: 0, failed: 0 }, sub: { ok: 0, failed: 0 }, tools: {}, recent: [] }
+  const a = addCall(addCall(zero, false, true, 'Bash'), false, false, 'Edit')
+  expect(a).toEqual({ main: { ok: 1, failed: 1 }, sub: { ok: 0, failed: 0 }, tools: { Bash: 1, Edit: 1 }, recent: [{ tool: 'Bash', ok: true, sub: false }, { tool: 'Edit', ok: false, sub: false }] })
+  const b = addCall(a, true, true, 'Bash')
+  expect(b.sub).toEqual({ ok: 1, failed: 0 })
+  expect(b.recent[2]).toEqual({ tool: 'Bash', ok: true, sub: true })
+  let many = zero
+  for (let i = 0; i < 8; i++) many = addCall(many, false, true, `T${i}`)
+  expect(many.recent.map(r => r.tool)).toEqual(['T3', 'T4', 'T5', 'T6', 'T7'])
+  expect(addCall({ ...zero, recent: undefined } as never, false, true, 'Bash').recent).toHaveLength(1)
+  expect(topTools(undefined)).toEqual([])
+  expect(topTools(b.tools)).toEqual([['Bash', 2], ['Edit', 1]])
 })

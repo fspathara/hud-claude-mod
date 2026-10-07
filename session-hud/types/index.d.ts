@@ -32,6 +32,19 @@ export type HudAgent = {
   status: string
 }
 
+export type HudCalls = {
+  /** Tool calls of the main loop. */
+  main: { ok: number; failed: number }
+  /** Tool calls of all subagents together. */
+  sub: { ok: number; failed: number }
+  /** Calls of each tool, main loop and subagents together. */
+  tools: Record<string, number>
+  /** The last calls, the newest last. */
+  recent: HudRecentCall[]
+}
+
+export type HudRecentCall = { tool: string; ok: boolean; sub: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
     'session-hud': {
@@ -48,6 +61,8 @@ declare module 'claude-code' {
       limits: HudLimit[]
       /** The agents of the session, subagents and teammates, as the last timer tick read them. */
       agents: HudAgent[]
+      /** Tool calls, counted by who made them and by the result. */
+      calls: HudCalls
     }
   }
 }

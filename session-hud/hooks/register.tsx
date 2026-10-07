@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { HudAgent, HudCache, HudContext, HudLimit } from '../types'
+import type { HudAgent, HudCalls, HudCache, HudContext, HudLimit } from '../types'
 
 const PANE = 'session-hud'
 const TITLE = 'Session HUD'
@@ -30,6 +30,31 @@ const cost = atom({ plugin: 'session-hud', key: 'cost' } as const, null as numbe
 const limits = atom({ plugin: 'session-hud', key: 'limits' } as const, [] as HudLimit[])
 
 const agents = atom({ plugin: 'session-hud', key: 'agents' } as const, [] as HudAgent[])
+
+const EMPTY_CALLS: HudCalls = { main: { ok: 0, failed: 0 }, sub: { ok: 0, failed: 0 }, tools: {}, recent: [] }
+const calls = atom({ plugin: 'session-hud', key: 'calls' } as const, EMPTY_CALLS)
+
+/** Add one tool call to the tally of the main loop or of the subagents. */
+export function addCall(c: HudCalls, fromSubagent: boolean, ok: boolean, tool: string): HudCalls {
+  const who = fromSubagent ? 'sub' : 'main'
+  const t = c[who]
+  return {
+    ...c,
+    [who]: ok ? { ...t, ok: t.ok + 1 } : { ...t, failed: t.failed + 1 },
+    tools: { ...c.tools, [tool]: (c.tools?.[tool] ?? 0) + 1 },
+    // The saved state of an older load can have no `recent` field.
+    recent: [...(c.recent ?? []), { tool, ok, sub: fromSubagent }].slice(-MAX_RECENT),
+  }
+}
+
+const MAX_TOOL_ROWS = 5
+const MAX_RECENT = 5
+
+/** The tools by call count, the most used first; equal counts keep name order. */
+// The saved state of an older load can have no `tools` field.
+export function topTools(tools: Record<string, number> | undefined): [string, number][] {
+  return Object.entries(tools ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+}
 
 const ACTIVE = ['pending', 'running', 'waiting']
 const MAX_AGENT_ROWS = 4
@@ -248,10 +273,25 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  // Count each tool call by its result. A deny, an error result or a throw is a failed call.
+  on('tool.call', async ($, e, next) => {
+    const sub = e.agentId !== undefined
+    try {
+      const result = await next(e)
+      const ok = result.deny === undefined && result.isError !== true
+      await update($, calls, c => addCall(c, sub, ok, e.tool)).catch(() => {})
+      return result
+    } catch (err) {
+      await update($, calls, c => addCall(c, sub, false, e.tool)).catch(() => {})
+      throw err
+    }
+  })
+
   // A /clear starts a new conversation: the old cache prefix and context are gone.
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       await update($, cache, () => EMPTY_CACHE)
+      await update($, calls, () => EMPTY_CALLS)
       await update($, context, () => ({ percent: null, tokens: null, window: null }))
     }
 
@@ -260,12 +300,15 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
+    try {
     const width = Math.max(10, e.props.bodyColumns)
 
     const m = await read($, model)
     const eff = await read($, effort)
     const all = await read($, agents)
     const busy = activeAgents(all)
+    const tally = await read($, calls)
+    const used = topTools(tally.tools)
     const spent = await read($, cost)
     const windows = await read($, limits)
     const n = troops(eff)
@@ -351,6 +394,30 @@ export const register: Register = (on, options) => {
           </Text>
         ))}
         {busy.length > MAX_AGENT_ROWS && <Text dimColor>{`and ${busy.length - MAX_AGENT_ROWS} more`}</Text>}
+        <Text wrap="truncate-end">
+          <Text dimColor>{'Main calls      '}</Text>
+          <Text color="success">{`${tally.main.ok} ok`}</Text>
+          <Text color={RED}>{`  ${tally.main.failed} failed`}</Text>
+        </Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>{'Subagent calls  '}</Text>
+          <Text color="success">{`${tally.sub.ok} ok`}</Text>
+          <Text color={RED}>{`  ${tally.sub.failed} failed`}</Text>
+        </Text>
+        {used.slice(0, MAX_TOOL_ROWS).map(([name, count]) => (
+          <Text key={name} wrap="truncate-end">
+            <Text dimColor>{name.padEnd(16)}</Text>
+            <Text>{String(count)}</Text>
+          </Text>
+        ))}
+        {used.length > MAX_TOOL_ROWS && <Text dimColor>{`and ${used.length - MAX_TOOL_ROWS} more tools`}</Text>}
+        {(tally.recent ?? []).length > 0 && <Text dimColor>Last calls</Text>}
+        {[...(tally.recent ?? [])].reverse().map((r, i) => (
+          <Text key={i} wrap="truncate-end" color={r.ok ? 'success' : RED}>
+            {`${r.ok ? '✓' : '✗'} ${r.tool}`}
+            {r.sub ? <Text dimColor>{'  subagent'}</Text> : null}
+          </Text>
+        ))}
         <Text> </Text>
         <Text bold color={GOLD}>{heading('Treasury', width)}</Text>
         {spent !== null && (
@@ -392,5 +459,9 @@ export const register: Register = (on, options) => {
         </Text>
       </Box>
     )
+    } catch (err) {
+      // Show the failure in the pane. A silent pane hides the cause.
+      return <Text color={RED}>{`HUD error: ${err instanceof Error ? err.message : String(err)}`}</Text>
+    }
   })
 }
