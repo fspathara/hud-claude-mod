@@ -1,0 +1,36 @@
+{
+  "name": "session-hud",
+  "version": "0.1.0",
+  "description": "A pane that shows the model, the effort, the output style, the context, the subagents, the cost, the rate limits and the prompt cache",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cacheTtl": {
+      "type": "string",
+      "title": "Prompt cache TTL",
+      "description": "The time that the prompt cache stays warm after the last API response",
+      "options": [
+        "5m",
+        "1h"
+      ],
+      "default": "1h"
+    },
+    "characters": {
+      "type": "string",
+      "title": "Character set",
+      "description": "The figures that show the model and the effort in the pane",
+      "options": [
+        "sonic",
+        "chess"
+      ],
+      "default": "sonic"
+    }
+  },
+  "author": {
+    "name": "Fotis Spatharakis"
+  },
+  "keywords": [
+    "mods",
+    "hud",
+    "pane"
+  ]
+}
