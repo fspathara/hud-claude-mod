@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repository is a Claude Code marketplace (`.claude-plugin/marketplace.json`). It has one plugin: `session-hud`. The plugin is a mod. It draws a HUD pane with the model, effort, output style, context, subagents, tool calls, cost, rate limits and prompt cache. The `README.md` describes the user options (`characters`, `cacheTtl`) and the install steps.
 
+## Security rule
+
+Nothing leaves the user PC. The mod has no network code, no file access, no process calls, and no model calls. Do not add any of these. The `README.md` makes this claim to users, so keep both files true.
+
 ## Commands
 
 There is no `package.json`. The Claude Code CLI does the validation and the tests:
