@@ -29,7 +29,7 @@ All the code is in `session-hud/hooks/register.tsx`. You can read it before you 
 
 ## Install
 
-1. Run `/plugin marketplace add <owner>/<repo>`. You can also use a local path.
+1. Run `/plugin marketplace add fspathara/hud-claude-mod`. You can also use a local path.
 2. Run `/plugin install session-hud@claude-hud-mod`.
 3. Run `/hud` to open the pane.
 
