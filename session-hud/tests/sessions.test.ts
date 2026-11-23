@@ -7,6 +7,7 @@ import {
   folderName,
   gitDirOf,
   hudDir,
+  isUserPrompt,
   livePeers,
   needsSummary,
   oneLine,
@@ -61,6 +62,14 @@ test('the git helpers read the branch, a detached HEAD and a worktree', () => {
   expect(gitDirOf('gitdir: ../repo/.git/worktrees/wt', '/w/wt')).toBe('/w/wt/../repo/.git/worktrees/wt')
   expect(gitDirOf('nothing', '/w')).toBe(null)
   expect(folderName('D:\\Projects\\claude-mods\\')).toBe('claude-mods')
+})
+
+test('only the prompts of the user count as the last prompt', () => {
+  expect(isUserPrompt('composer', false)).toBe(true)
+  expect(isUserPrompt('bridge', false)).toBe(true)
+  expect(isUserPrompt('composer', true)).toBe(false)
+  expect(isUserPrompt('notification', false)).toBe(false)
+  expect(isUserPrompt('peer', false)).toBe(false)
 })
 
 test('a line is cut with an ellipsis', () => {

@@ -136,3 +136,8 @@ export function peerLine(p: HudPeer): string {
   if (p.summary !== '') return p.summary
   return p.prompt === '' ? 'no prompt yet' : `> ${p.prompt}`
 }
+
+/** True for a prompt that the user wrote: typed, sent from a phone, or from an SDK host. Not a notification or a peer message. */
+export function isUserPrompt(origin: string, isMeta: boolean): boolean {
+  return !isMeta && (origin === 'composer' || origin === 'bridge' || origin === 'sdk')
+}

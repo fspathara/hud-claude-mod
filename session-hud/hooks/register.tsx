@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 
 import type { HudAgent, HudCalls, HudCache, HudContext, HudLimit, HudPeer, HudSummary } from '../types'
 import { askSummary, maybeSummarize, newRegistry, openRegistry, publish, readPeers } from './registry'
-import { oneLine, peerLine, peerStats, peerTitle } from './sessions'
+import { isUserPrompt, oneLine, peerLine, peerStats, peerTitle } from './sessions'
 
 const PANE = 'session-hud'
 const TITLE = 'Session HUD'
@@ -298,7 +298,7 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (hasSessions && e.command === undefined) await update($, lastPrompt, () => oneLine(e.text, 120))
+    if (hasSessions && e.command === undefined && isUserPrompt(e.origin.kind, e.isMeta === true)) await update($, lastPrompt, () => oneLine(e.text, 120))
     return next(e)
   })
 
