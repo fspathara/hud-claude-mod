@@ -10,7 +10,7 @@
     {
       "name": "session-hud",
       "source": "./session-hud",
-      "description": "A pane that shows the model, the effort, the output style, the context, the subagents, the cost, the rate limits and the prompt cache"
+      "description": "A pane that shows the model, the effort, the output style, the context, the subagents, the cost, the rate limits, the prompt cache and the other open sessions"
     }
   ]
 }
