@@ -31,11 +31,21 @@ export function newRegistry(): Registry {
 
 /** Find the shared folder and the session ID. The folder stays null when the session keeps no transcript. */
 export async function openRegistry($: Engine, reg: Registry): Promise<void> {
-  reg.selfId = await $.session.id()
-  // An ask written before this load is old: do not answer it.
-  reg.askHandled = Date.now()
+  const id = await $.session.id()
+  // A new ID is a new session (start or /clear): an ask written before it is old.
+  if (id !== reg.selfId) reg.askHandled = Date.now()
+  reg.selfId = id
   const info = await $.session.info()
   reg.dir = hudDir(info.transcriptPath)
+}
+
+/**
+ * The shared folder, found again when it is still null.
+ * A new session can have no transcript path at `session.start`, before the first prompt.
+ */
+async function sharedDir($: Engine, reg: Registry): Promise<string | null> {
+  if (reg.dir === null) await openRegistry($, reg).catch(() => {})
+  return reg.dir
 }
 
 /** The branch of the working directory, from the git files. Null outside a repository or on a read error. */
@@ -59,7 +69,8 @@ async function readBranch($: Engine): Promise<string | null> {
 
 /** Write the file of this session. A failed write only skips one heartbeat. */
 export async function publish($: Engine, reg: Registry, status?: HudPeerStatus): Promise<void> {
-  if (reg.dir === null) return
+  const dir = await sharedDir($, reg)
+  if (dir === null) return
   const ctx = await read($, context)
   const record: HudPeer = {
     id: reg.selfId,
@@ -73,20 +84,21 @@ export async function publish($: Engine, reg: Registry, status?: HudPeerStatus):
     summary: (await read($, summary)).text,
     updatedAt: Date.now(),
   }
-  await $.fs.write(`${reg.dir}/${reg.selfId}.json`, JSON.stringify(record)).catch(() => {})
+  await $.fs.write(`${dir}/${reg.selfId}.json`, JSON.stringify(record)).catch(() => {})
 }
 
 /** Read the files of the other sessions into the `peers` atom. */
 export async function readPeers($: Engine, reg: Registry): Promise<void> {
-  if (reg.dir === null) return
+  const dir = await sharedDir($, reg)
+  if (dir === null) return
   const now = Date.now()
-  const entries = await $.fs.list(reg.dir).catch((): FsEntry[] => [])
+  const entries = await $.fs.list(dir).catch((): FsEntry[] => [])
   const fresh = entries.filter(
     f => f.kind === 'file' && f.name.endsWith('.json') && f.name !== `${reg.selfId}.json` && now - f.mtimeMs <= STALE_MS,
   )
   const found: HudPeer[] = []
   for (const f of fresh) {
-    const p = parsePeer(await $.fs.read(`${reg.dir}/${f.name}`).catch(() => ''))
+    const p = parsePeer(await $.fs.read(`${dir}/${f.name}`).catch(() => ''))
     if (p !== null) found.push(p)
   }
   await update($, peers, () => livePeers(found, reg.selfId, now))
