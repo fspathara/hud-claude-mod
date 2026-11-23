@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { HudAgent, HudCalls, HudCache, HudContext, HudLimit } from '../types'
+import type { HudAgent, HudCalls, HudCache, HudContext, HudLimit, HudPeer, HudSummary } from '../types'
+import { askSummary, maybeSummarize, newRegistry, openRegistry, publish, readPeers } from './registry'
+import { oneLine, peerLine, peerStats, peerTitle } from './sessions'
 
 const PANE = 'session-hud'
 const TITLE = 'Session HUD'
@@ -17,16 +19,21 @@ const EMPTY_CACHE: HudCache = {
 }
 
 const model = atom({ plugin: 'session-hud', key: 'model' } as const, '')
-const effort = atom({ plugin: 'session-hud', key: 'effort' } as const, '')
-const outputStyle = atom({ plugin: 'session-hud', key: 'outputStyle' } as const, 'default')
 const context = atom({ plugin: 'session-hud', key: 'context' } as const, {
   percent: null,
   tokens: null,
   window: null,
 } as HudContext)
+const cost = atom({ plugin: 'session-hud', key: 'cost' } as const, null as number | null)
+// The scan of the state library reads only atoms of this file, so registry.ts declares these again.
+const busy = atom({ plugin: 'session-hud', key: 'busy' } as const, false)
+const lastPrompt = atom({ plugin: 'session-hud', key: 'lastPrompt' } as const, '')
+const summary = atom({ plugin: 'session-hud', key: 'summary' } as const, { text: '', turn: 0 } as HudSummary)
+const peers = atom({ plugin: 'session-hud', key: 'peers' } as const, [] as HudPeer[])
+const effort = atom({ plugin: 'session-hud', key: 'effort' } as const, '')
+const outputStyle = atom({ plugin: 'session-hud', key: 'outputStyle' } as const, 'default')
 const cache = atom({ plugin: 'session-hud', key: 'cache' } as const, EMPTY_CACHE)
 const now = atom({ plugin: 'session-hud', key: 'now' } as const, 0)
-const cost = atom({ plugin: 'session-hud', key: 'cost' } as const, null as number | null)
 const limits = atom({ plugin: 'session-hud', key: 'limits' } as const, [] as HudLimit[])
 
 const agents = atom({ plugin: 'session-hud', key: 'agents' } as const, [] as HudAgent[])
@@ -48,6 +55,7 @@ export function addCall(c: HudCalls, fromSubagent: boolean, ok: boolean, tool: s
 }
 
 const MAX_TOOL_ROWS = 5
+const MAX_PEER_ROWS = 5
 const MAX_RECENT = 5
 
 /** The tools by call count, the most used first; equal counts keep name order. */
@@ -189,6 +197,10 @@ export function arrowTrack(hit: number | null, cells: number): string {
 export const register: Register = (on, options) => {
   const theme: Theme = options.characters === 'chess' ? 'chess' : 'sonic'
   const ttlMs = options.cacheTtl === '5m' ? 5 * 60_000 : 60 * 60_000
+  const hasSessions = options.otherSessions !== 'off'
+  const hasSummaries = hasSessions && options.sessionSummary !== 'local'
+  const reg = newRegistry()
+  let ticks = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -201,8 +213,20 @@ export const register: Register = (on, options) => {
     await update($, outputStyle, () => style)
     void $.session.model().then(m => update($, model, () => m))
 
+    if (hasSessions) {
+      await openRegistry($, reg).catch(() => {})
+      void publish($, reg)
+    }
+
     // Redraw the expiry timer one time each second.
+    // Each 5 seconds, read the other sessions and answer a summary ask. Each 10 seconds, send a heartbeat.
     $.clock.every(1000, () => {
+      ticks += 1
+      if (hasSessions && ticks % 5 === 0) {
+        void readPeers($, reg)
+        if (hasSummaries) void maybeSummarize($, reg, true).catch(() => {})
+      }
+      if (hasSessions && ticks % 10 === 0) void publish($, reg)
       void update($, now, () => Date.now())
       void $.agent.list().then(list =>
         update($, agents, () =>
@@ -273,6 +297,30 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  on('prompt.submit', async ($, e, next) => {
+    if (hasSessions && e.command === undefined) await update($, lastPrompt, () => oneLine(e.text, 120))
+    return next(e)
+  })
+
+  on('turn.start', async ($, e, next) => {
+    if (hasSessions && e.agentId === undefined) {
+      await update($, busy, () => true)
+      void publish($, reg)
+    }
+    return next(e)
+  })
+
+  // After a main-loop turn: mark the session idle, and make a model summary when one is due.
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (hasSessions && e.agentId === undefined) {
+      await update($, busy, () => false)
+      void publish($, reg)
+      if (hasSummaries) void maybeSummarize($, reg, false).then(() => publish($, reg)).catch(() => {})
+    }
+    return result
+  })
+
   // Count each tool call by its result. A deny, an error result or a throw is a failed call.
   on('tool.call', async ($, e, next) => {
     const sub = e.agentId !== undefined
@@ -289,7 +337,11 @@ export const register: Register = (on, options) => {
 
   // A /clear starts a new conversation: the old cache prefix and context are gone.
   on('session.end', async ($, e, next) => {
+    // Mark the file as ended. The other panes then hide this session at once.
+    if (hasSessions) await publish($, reg, 'ended').catch(() => {})
     if (e.reason === 'clear') {
+      await update($, summary, () => ({ text: '', turn: 0 }))
+      await update($, lastPrompt, () => '')
       await update($, cache, () => EMPTY_CACHE)
       await update($, calls, () => EMPTY_CALLS)
       await update($, context, () => ({ percent: null, tokens: null, window: null }))
@@ -299,7 +351,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     try {
     const width = Math.max(10, e.props.bodyColumns)
 
@@ -318,6 +370,8 @@ export const register: Register = (on, options) => {
     const ctx = await read($, context)
     const c = await read($, cache)
     const t = (await read($, now)) || Date.now()
+    const others = hasSessions ? await read($, peers) : []
+    const mine = hasSessions ? await read($, summary) : { text: '', turn: 0 }
 
     // Context bar: the filled part in the level color, the rest dark; white text on both.
     const pct = ctx.percent
@@ -457,6 +511,32 @@ export const register: Register = (on, options) => {
           <Text dimColor>{'Expires  '}</Text>
           <Text color={expiryColor}>{expiry}</Text>
         </Text>
+        {hasSessions && (
+          <Box flexDirection="column">
+            <Text> </Text>
+            <Text bold color={GOLD}>{heading('Sessions', width)}</Text>
+            {mine.text !== '' && (
+              <Text wrap="truncate-end">
+                <Text dimColor>{'This  '}</Text>
+                <Text>{mine.text}</Text>
+              </Text>
+            )}
+            {others.length === 0 && <Text dimColor>no other session open</Text>}
+            {others.slice(0, MAX_PEER_ROWS).map((p: HudPeer) => (
+              <Box key={p.id} flexDirection="column">
+                <Text wrap="truncate-end" bold color={p.status === 'busy' ? 'success' : undefined}>
+                  {`${p.status === 'busy' ? '●' : '○'} ${peerTitle(p)}`}
+                </Text>
+                <Text wrap="truncate-end" dimColor>{`  ${peerStats(p, t)}`}</Text>
+                <Text wrap="truncate-end">{`  ${peerLine(p)}`}</Text>
+                {hasSummaries && (
+                  <Button key={`ask-${p.id}`} label="Summarize" onPress={() => askSummary($, reg, p.id)} />
+                )}
+              </Box>
+            ))}
+            {others.length > MAX_PEER_ROWS && <Text dimColor>{`and ${others.length - MAX_PEER_ROWS} more`}</Text>}
+          </Box>
+        )}
       </Box>
     )
     } catch (err) {

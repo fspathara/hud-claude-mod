@@ -1,7 +1,7 @@
 {
   "name": "session-hud",
-  "version": "0.1.0",
-  "description": "A pane that shows the model, the effort, the output style, the context, the subagents, the cost, the rate limits and the prompt cache",
+  "version": "0.2.0",
+  "description": "A pane that shows the model, the effort, the output style, the context, the subagents, the cost, the rate limits, the prompt cache and the other open sessions",
   "types": "./types/index.d.ts",
   "userConfig": {
     "cacheTtl": {
@@ -23,6 +23,26 @@
         "chess"
       ],
       "default": "sonic"
+    },
+    "otherSessions": {
+      "type": "string",
+      "title": "Other sessions",
+      "description": "Show the other open Claude Code sessions on this PC. Each session writes a small file to the hud-sessions folder in the Claude config folder",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "sessionSummary": {
+      "type": "string",
+      "title": "Session summary",
+      "description": "mixed: the last prompt, and a short Haiku summary after the first turn, every 5 turns, and on Summarize. local: the last prompt only, with no model calls",
+      "options": [
+        "mixed",
+        "local"
+      ],
+      "default": "mixed"
     }
   },
   "author": {
@@ -31,6 +51,7 @@
   "keywords": [
     "mods",
     "hud",
-    "pane"
+    "pane",
+    "sessions"
   ]
 }

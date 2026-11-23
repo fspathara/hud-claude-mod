@@ -45,6 +45,37 @@ export type HudCalls = {
 
 export type HudRecentCall = { tool: string; ok: boolean; sub: boolean }
 
+export type HudPeerStatus = 'busy' | 'idle' | 'ended'
+
+/** One Claude Code session, as its file in the shared `hud-sessions` folder gives it. */
+export type HudPeer = {
+  /** The session ID; also the file name. */
+  id: string
+  /** The folder name of the working directory. */
+  project: string
+  /** The git branch, the short commit on a detached HEAD, or null outside a repository. */
+  branch: string | null
+  model: string
+  /** `busy` while a turn runs, `idle` between turns, `ended` after the session stops. */
+  status: HudPeerStatus
+  /** Context used, 0 to 100; null before the first request. */
+  context: number | null
+  /** Session cost in US dollars; null when the host keeps no ledger. */
+  cost: number | null
+  /** The last prompt of the user, on one line. */
+  prompt: string
+  /** The model summary of the work; empty before the first summary or when summaries are off. */
+  summary: string
+  /** Epoch milliseconds of the last heartbeat. */
+  updatedAt: number
+}
+
+export type HudSummary = {
+  text: string
+  /** The main-loop turn count when the summary was made; 0 before the first. */
+  turn: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'session-hud': {
@@ -63,6 +94,14 @@ declare module 'claude-code' {
       agents: HudAgent[]
       /** Tool calls, counted by who made them and by the result. */
       calls: HudCalls
+      /** True while a main-loop turn runs. */
+      busy: boolean
+      /** The last prompt of the user, on one line. */
+      lastPrompt: string
+      /** The model summary of this session. */
+      summary: HudSummary
+      /** The other open sessions, as the last timer read gave them. */
+      peers: HudPeer[]
     }
   }
 }
